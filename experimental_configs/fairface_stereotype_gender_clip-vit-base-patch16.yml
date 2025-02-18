@@ -1,5 +1,6 @@
 att_to_debias: 'gender'
 query_type: 'stereotype'
-dataset_name: 'fairface'
+ref_dataset_name: 'fairface_train'
+target_dataset_name: 'fairface_validation'
 model_ID: 'openai/clip-vit-base-patch16' 
 random_seed: 0

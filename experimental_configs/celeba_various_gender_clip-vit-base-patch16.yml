@@ -1,6 +1,6 @@
 att_to_debias: 'gender'
-query_type: 'hair'
+query_type: 'various'
 ref_dataset_name: 'celeba_large_train'
-target_dataset_name: 'celeba_large_validation'
+target_dataset_name: 'celeba'
 model_ID: 'openai/clip-vit-base-patch16' 
 random_seed: 0

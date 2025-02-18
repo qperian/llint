@@ -5,3 +5,4 @@ stereotype_classes = [
         ]
 
 hair_classes = ['Blond_Hair', 'Black_Hair', 'Brown_Hair', 'Gray_Hair']
+various_classes = ['Eyeglasses', 'Wearing_Hat', 'Wearing_Earrings']

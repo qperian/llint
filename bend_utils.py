@@ -1,11 +1,28 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 from kneed import KneeLocator
 from sklearn.decomposition import TruncatedSVD
 from sentence_transformers import util
 from scipy.optimize import minimize
 from sklearn.metrics import roc_auc_score
+import os
 
+def get_cos_neighbors_tensor(query_vec, embed_dataset, k = None):
+    _qv = F.normalize(query_vec)
+    _ed = F.normalize(embed_dataset)
+    cos_scores = _qv@_ed.T
+    if k is None:
+        _k = len(embed_dataset)
+    else:
+        _k = k
+    top_results = torch.topk(cos_scores, k=_k)
+    topk_sim = top_results.values.cpu().numpy().reshape(-1)
+    top_indices = top_results.indices.cpu().numpy()
+    dist_scores = 1. - topk_sim
+    #neighbors = embed_dataset[top_indices]
+    
+    return top_indices.T
 def get_cos_neighbors(query_vec, embed_dataset, k = None):
     cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset['embedding'].astype(float))
     if k is None:
@@ -23,8 +40,36 @@ def get_cos_neighbors(query_vec, embed_dataset, k = None):
         topk_sim = topk_sim[:kn]
     dist_scores = 1. - topk_sim
     neighbors = embed_dataset[top_indices]
-    
     return dist_scores, neighbors
+
+def im_cos_neighbors(query_vec, query_class,embed_dataset, name, k = None):
+    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset['embedding'].astype(float))
+    if k is None:
+        _k = len(embed_dataset)
+    else:
+        _k = k
+    top_results = torch.topk(cos_scores, k=_k)
+    topk_sim = top_results.values.cpu().numpy().reshape(-1)
+    top_indices = top_results.indices.cpu().numpy()[0]
+
+    if k is None:
+        kn = KneeLocator([i for i in range(len(topk_sim))], topk_sim, curve='convex', direction='decreasing').knee
+        print(kn)
+        top_indices = top_indices[:kn]
+        topk_sim = topk_sim[:kn]
+    dist_scores = 1. - topk_sim
+    neighbors = embed_dataset[top_indices]
+    for i, file in enumerate(neighbors['file']):
+        os.symlink('/data/healthy-ml/gobi1/data/Celeba_HQ_dialog/'+file, f'./retrieved/{name}={neighbors[query_class][i]}_{i}.png')#'../debias_vl/discriminative/datasets/data/CelebA/'
+    return neighbors
+def get_cos_class(class_embeddings, embed_dataset, temperature=100.):
+    # _class_embeddings = F.normalize(class_embeddings)
+    # _embed_dataset = F.normalize(embed_dataset)
+    print(type(class_embeddings), type(embed_dataset))
+    cross = util.cos_sim(embed_dataset, class_embeddings)
+    text_probs = (temperature * cross).softmax(dim=-1)
+    _, predicted = torch.max(text_probs.data, 1)
+    return predicted.cpu().numpy()
 
 def get_embeddings(input_text : list, clip_model, clip_processor, normalize=True, device='cuda'):
     # tokenized_query_text = clip_tokenizer(input_text, padding=True, return_tensors="pt").to(device)
@@ -40,8 +85,10 @@ def get_embeddings(input_text : list, clip_model, clip_processor, normalize=True
         query_text_embedding /= query_text_embedding.norm(dim=-1, keepdim=True)
     return query_text_embedding
 
-def get_proj_matrix(embeddings):
-    tSVD = TruncatedSVD(n_components=len(embeddings))
+def get_proj_matrix(embeddings, n_comp=None):
+    if n_comp == None:  
+        n_comp = len(embeddings)
+    tSVD = TruncatedSVD(n_components=n_comp)
     embeddings_ = tSVD.fit_transform(embeddings)
     basis = tSVD.components_.T
 
@@ -163,6 +210,7 @@ def max_skew(returned_samples, target_dist, spurious_label='gender', target_clas
         candidate_skew = log_with_eps(p_y_returned/p_y_ds)# np.log(p_y_returned/p_y_ds) 
         if candidate_skew > maxskew:
             maxskew = candidate_skew
+        print("\%\% ", cl, p_y_ds, p_y_returned, candidate_skew)
     return maxskew
 
 def get_kl(returned_samples, target_dist, spurious_label='gender', target_classes = [-1,1]):
@@ -172,6 +220,7 @@ def get_kl(returned_samples, target_dist, spurious_label='gender', target_classe
         p_y_returned = (np.asarray(returned_samples[spurious_label])==cl).astype(int).mean()
         # print(f"p_y_returned: {p_y_returned}, p_y_ds: {p_y_ds}")
         kl += p_y_returned * log_with_eps(p_y_returned/p_y_ds)#np.log(p_y_returned/p_y_ds)
+        print("%% ", cl, p_y_ds, p_y_returned, p_y_returned * log_with_eps(p_y_returned/p_y_ds))
     return kl
 
 def _cl_with_max_skew(returned_samples, target_dist, spurious_label='gender', target_classes = [-1,1]):
@@ -211,9 +260,12 @@ def group_accuracy(retrieved_samples, q_class,  spurious_label, spurious_class_l
     s_array = np.asarray(retrieved_samples[spurious_label])
     class_array = np.asarray(retrieved_samples[q_class])
     result_dict = {}
+    total_acc = 0
     for s_class in spurious_class_list:
         result_dict[s_class] = (class_array[s_array == s_class] == 1).mean()
-    return result_dict
+        total_acc += (class_array[s_array == s_class] == 1).sum()
+    total_acc = total_acc/len(class_array)
+    return result_dict, total_acc
 
 def auc_roc(q_embed, embed_dataset,  q_class, spurious_label, spurious_class_list, metric_is_distance = True):
     all_scores, all_samples = get_cos_neighbors(q_embed, embed_dataset, k = len(embed_dataset))
@@ -285,16 +337,34 @@ def relevency(returned_samples, q_class, spurious_label='gender', spurious_class
         result_dict[cl] = p_rel
     return result_dict
 
-def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, target_spurious_class_list, target_dataset, name='Vanilla', QUERY_IS_LABELED=True):
+def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, target_spurious_class_list, target_dataset, 
+                class_embeddings = None, name='Vanilla', QUERY_IS_LABELED=True):
     # result_d = {}
     # for i in range(5):
     _result = {}
     _t_ds = target_dataset
     
     _scores, _samples = get_cos_neighbors(q_embedding, _t_ds, k = K)
+    
+ #   retrieval_acc = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
+ #   print(f"{name} retrieval accuracy: {retrieval_acc}")
     # _scores, _samples = target_embeddings_dataset.get_nearest_examples(
     # "embedding", q_embedding, k=K)
     if QUERY_IS_LABELED:
+        #im_cos_neighbors(q_embedding, query_class, _t_ds, f"{name}_{query_class}", k=100)
+        
+        retrieval_acc, total_accuracy = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
+        print(f"{name} retrieval accuracy: {retrieval_acc}")
+        print(f"{name} total accuracy: {total_accuracy}")
+        _result['retrieval_accuracy'] = retrieval_acc
+        _result['total_accuracy'] = total_accuracy
+
+        classes = get_cos_class(class_embeddings, _t_ds["embedding"])
+        binary_target_classes = (np.array(target_dataset[query_class]) == 1 ).astype(int)
+        acc = (binary_target_classes == classes).astype(int).mean()
+        _result['classification_accuracy'] = acc
+        print(f"{name} classification accuracy: {acc}")
+
         _auc_roc = auc_roc(q_embedding, _t_ds,  query_class, att_to_debias, spurious_class_list = target_spurious_class_list)
         worst_metric_val, worst_group = get_worst_group_performance(_auc_roc)
         best_metric_val, best_group = get_best_group_performance(_auc_roc)

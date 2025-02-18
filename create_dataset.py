@@ -14,7 +14,9 @@ parser.add_argument('--data_path', type=str,
 parser.add_argument('--meta_data_file_name', type=str, 
                     default='CelebAMask-HQ-attribute-anno.txt') 
 parser.add_argument('--dataset_name', type=str, 
-                    default='celeba') 
+                    default='celeba')
+parser.add_argument('--name', type=str, 
+                    default='train')  
 args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,6 +29,16 @@ dataset_name = args.dataset_name
 model_ID = f'openai/{_MODEL_NAME}' 
 vl_model = CLIPModel.from_pretrained(model_ID).to(device)
 processor = AutoProcessor.from_pretrained(model_ID)
+
+def get_celeba_large_metadata(data_path, meta_data_file_name):
+    def add_path(row):
+        return 'img_align_celeba/' + row
+
+    img_files = pd.read_csv(data_path + meta_data_file_name, header=0, sep=",")
+    img_files = img_files.rename(columns = {'image_id': 'filename'})
+    img_files['file'] = img_files['filename'].apply(add_path)
+    feature_names = img_files.columns
+    return img_files, feature_names
 
 def get_celeba_metadata(data_path, meta_data_file_name):
     def add_path(row):
@@ -66,7 +78,9 @@ if dataset_name == 'celeba':
 elif dataset_name == 'fairface':
     meta_df, feature_names = get_fairface_metadata(data_path, meta_data_file_name)
     meta_df.head()
-
+elif dataset_name == 'celeba_large':
+    meta_df, feature_names = get_celeba_large_metadata(data_path, meta_data_file_name)
+    meta_df.head()
 else:
     print("Dataset not defined")
 
@@ -102,7 +116,7 @@ while indx < len(meta_df):
 for i in range(len(embed_list)):
     embed_list[i]['embedding'][0] = [f.astype(float) for f in embed_list[i]['embedding'][0]]
 
-with open(f'data/{dataset_name}_featurized_{_MODEL_NAME}.jsonl', 'w') as fout:
+with open(f'data/{dataset_name}_{args.name}_featurized_{_MODEL_NAME}.jsonl', 'w') as fout:
     for e_dict in embed_list:
         json.dump(e_dict, fout)
 
@@ -121,5 +135,5 @@ for i in range(5):
     fold_dict[i]['train_indices'] = [int(x) for x in train_indices]
     fold_dict[i]['test_indices'] = [int(x) for x in test_indices]
 
-with open(f'data/fold_indices/{dataset_name}_featurized_{_MODEL_NAME}_folds.jsonl', 'w') as fout:
+with open(f'data/fold_indices/{dataset_name}_{args.name}_featurized_{_MODEL_NAME}_folds.jsonl', 'w') as fout:
     json.dump(fold_dict, fout)

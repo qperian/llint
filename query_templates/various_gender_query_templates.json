@@ -1,0 +1,178 @@
+{
+    "Narrow_Eyes": {
+        "query": "A photo of a celebrity with narrow eyes.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity with narrow eyes.",
+            "A photo of a female celebrity with narrow eyes."
+        ],
+        "classes": [            
+            "A photo of a celebrity with wide eyes.",
+            "A photo of a celebrity with narrow eyes."
+        ]
+
+    },
+    "Young": {
+        "query": "A photo of a celebrity who looks young.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity who looks young.",
+            "A photo of a female celebrity who looks young."
+        ],
+        "classes": [            
+            "A photo of a celebrity who looks old.",
+            "A photo of a celebrity who looks young."
+        ]
+
+    },
+    "Blurry": {
+        "query": "A blurry photo of a celebrity.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A blurry photo of a male celebrity.",
+            "A blurry photo of a female celebrity."
+        ],
+        "classes": [            
+            "A blurry photo of a celebrity.",
+            "A clear photo of a celebrity."
+        ]
+
+    },
+    "Straight_Hair": {
+        "query": "A photo of a celebrity with straight hair.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity with striaght hair.",
+            "A photo of a female celebrity with straight hair."
+        ],
+        "classes": [            
+            "A photo of a celebrity with curly hair.",
+            "A photo of a celebrity with straight hair."
+        ]
+
+    },
+    "Eyeglasses": {
+        "query": "A photo of a celebrity with eyeglasses.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity with eyeglasses.",
+            "A photo of a female celebrity with eyeglasses."
+        ],
+        "classes": [            
+            "A photo of a celebrity not wearing glasses.",
+            "A photo of a celebrity with glasses."
+        ]
+
+    },
+    "Wearing_Necktie": {
+        "query": "A photo of a celebrity wearing a necktie.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity wearing a necktie.",
+            "A photo of a female celebrity wearing a necktie."
+        ],
+        "classes": [            
+            "A photo of a celebrity with no necktie.",
+            "A photo of a celebrity with a necktie."
+        ]
+
+    },
+    "Wearing_Hat": {
+        "query": "A photo of a celebrity with a hat on.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity with a hat on.",
+            "A photo of a female celebrity with a hat on."
+        ],
+        "classes": [            
+            "A photo of a celebrity with no hat on.",
+            "A photo of a celebrity with a hat on."
+        ]
+
+    },
+    "Wearing_Earrings": {
+        "query": "A photo of a celebrity wearing earrings.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity wearing earrings.",
+            "A photo of a female celebrity wearing earrings."
+        ],
+        "classes": [            
+            "A photo of a celebrity not wearing earrings.",
+            "A photo of a celebrity wearing earrings."
+        ]
+
+    },
+    "Heavy_Makeup": {
+        "query": "A photo of a celebrity wearing heavy makeup.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity wearing heavy makeup.",
+            "A photo of a female celebrity wearing heavy makeup."
+        ],
+        "classes": [            
+            "A photo of a celebrity not wearing heavy makeup.",
+            "A photo of a celebrity wearing heavy makeup."
+        ]
+
+    },
+    "Wearing_Lipstick": {
+        "query": "A photo of a celebrity wearing lipstick.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity wearing lipstick.",
+            "A photo of a female celebrity wearing lipstick."
+        ],
+        "classes": [            
+            "A photo of a celebrity not wearing lipstick.",
+            "A photo of a celebrity wearing lipstick."
+        ]
+
+    },
+    "Bald": {
+        "query": "A photo of a celebrity who is bald.",
+        "spurious_prompts": [
+            "A photo of a male celebrity.",
+            "A photo of a female celebrity."
+        ],
+        "augmentations": [
+            "A photo of a male celebrity who is bald.",
+            "A photo of a female celebrity who is bald."
+        ],
+        "classes": [            
+            "A photo of a celebrity who is not bald.",
+            "A photo of a celebrity who is bald."
+        ]
+
+    }
+}

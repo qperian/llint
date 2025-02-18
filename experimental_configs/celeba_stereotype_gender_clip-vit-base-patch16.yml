@@ -1,5 +1,5 @@
 att_to_debias: 'gender'
-query_type: 'hair'
+query_type: 'stereotype'
 ref_dataset_name: 'celeba_large_train'
 target_dataset_name: 'celeba_large_validation'
 model_ID: 'openai/clip-vit-base-patch16' 
