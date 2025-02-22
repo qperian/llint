@@ -7,6 +7,7 @@ from sentence_transformers import util
 from scipy.optimize import minimize
 from sklearn.metrics import roc_auc_score
 import os
+import matplotlib.pyplot as plt
 
 def get_cos_neighbors_tensor(query_vec, embed_dataset, k = None):
     _qv = F.normalize(query_vec)
@@ -23,8 +24,12 @@ def get_cos_neighbors_tensor(query_vec, embed_dataset, k = None):
     #neighbors = embed_dataset[top_indices]
     
     return top_indices.T
-def get_cos_neighbors(query_vec, embed_dataset, k = None):
-    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset['embedding'].astype(float))
+def get_cos_neighbors(query_vec, embed_dataset, k = None, P=None):
+    if P is not None:
+        embed_dataset_debiased = np.matmul(embed_dataset['embedding'].astype(float), P.T)
+    else:
+        embed_dataset_debiased = embed_dataset['embedding'].astype(float)
+    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset_debiased)
     if k is None:
         _k = len(embed_dataset)
     else:
@@ -42,8 +47,12 @@ def get_cos_neighbors(query_vec, embed_dataset, k = None):
     neighbors = embed_dataset[top_indices]
     return dist_scores, neighbors
 
-def im_cos_neighbors(query_vec, query_class,embed_dataset, name, k = None):
-    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset['embedding'].astype(float))
+def im_cos_neighbors(query_vec, query_class,embed_dataset, name, k = None, P=None):
+    if P is not None:
+        embed_dataset_debiased = np.matmul(embed_dataset['embedding'].astype(float), P.T)
+    else:
+        embed_dataset_debiased = embed_dataset['embedding'].astype(float)
+    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset_debiased.astype(float))
     if k is None:
         _k = len(embed_dataset)
     else:
@@ -338,20 +347,22 @@ def relevency(returned_samples, q_class, spurious_label='gender', spurious_class
     return result_dict
 
 def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, target_spurious_class_list, target_dataset, 
-                class_embeddings = None, name='Vanilla', QUERY_IS_LABELED=True):
+                 fold, class_embeddings = None, name='Vanilla', QUERY_IS_LABELED=True, P=None):
     # result_d = {}
     # for i in range(5):
     _result = {}
     _t_ds = target_dataset
     
-    _scores, _samples = get_cos_neighbors(q_embedding, _t_ds, k = K)
+    _scores, _samples = get_cos_neighbors(q_embedding, _t_ds, k = K, P=P)
     
  #   retrieval_acc = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
  #   print(f"{name} retrieval accuracy: {retrieval_acc}")
     # _scores, _samples = target_embeddings_dataset.get_nearest_examples(
     # "embedding", q_embedding, k=K)
     if QUERY_IS_LABELED:
-        #im_cos_neighbors(q_embedding, query_class, _t_ds, f"{name}_{query_class}", k=100)
+        plot_cos_sims(f'{name}_{query_class}', q_embedding, _t_ds, query_class, target_spurious_class_list)
+
+        im_cos_neighbors(q_embedding, query_class, _t_ds, f"{fold}/{name}_{query_class}", k=100, P=P)
         
         retrieval_acc, total_accuracy = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
         print(f"{name} retrieval accuracy: {retrieval_acc}")
@@ -397,3 +408,26 @@ def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, 
     # result_d[f"fold_{i}"] = _result
     print()
     return result_d
+def plot_cos_sims(name, query_embedding, ref_dataset, query_class, att_list):
+    print("PLOTTING")
+    cos_sims = util.cos_sim(np.array(query_embedding).astype(np.float32), ref_dataset['embedding'])[0]
+    labels = np.array(ref_dataset[query_class]).flatten()
+    plt.figure(figsize=(10, 6))       
+    # Plot histograms
+    labels = (labels > 0).astype(int)
+    for i in range(2):
+        print(i)
+        print(cos_sims[labels == i])
+        print(labels)
+        plt.hist(cos_sims[labels == i], bins=30, alpha=0.5, label=f'{query_class}={i}', density=False)
+
+    # Add labels, legend, and title
+    plt.xlabel('Value')
+    plt.ylabel('Density')
+    plt.title(f'Distribution Cosine Sim: {name}')
+    plt.legend()
+    # Show the plot
+    plt.tight_layout()
+    plt.savefig(fname=f'./cos_split_imgs/{name}.png',
+        dpi=300, bbox_inches="tight")
+    plt.close()

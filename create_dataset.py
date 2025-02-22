@@ -30,6 +30,15 @@ model_ID = f'openai/{_MODEL_NAME}'
 vl_model = CLIPModel.from_pretrained(model_ID).to(device)
 processor = AutoProcessor.from_pretrained(model_ID)
 
+def get_utkface_metadata(data_path, meta_data_file_name):
+    def add_path(row):
+        return 'utkcropped/' + row
+
+    img_files = pd.read_csv(data_path + meta_data_file_name, header=0, sep=",")
+    img_files['file'] = img_files['filename'].apply(add_path)
+    feature_names = img_files.columns
+    return img_files, feature_names
+
 def get_celeba_large_metadata(data_path, meta_data_file_name):
     def add_path(row):
         return 'img_align_celeba/' + row
@@ -80,6 +89,9 @@ elif dataset_name == 'fairface':
     meta_df.head()
 elif dataset_name == 'celeba_large':
     meta_df, feature_names = get_celeba_large_metadata(data_path, meta_data_file_name)
+    meta_df.head()
+elif dataset_name == 'UTKFace':
+    meta_df, feature_names = get_utkface_metadata(data_path, meta_data_file_name)
     meta_df.head()
 else:
     print("Dataset not defined")

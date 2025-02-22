@@ -64,7 +64,7 @@
 
     },
     "Eyeglasses": {
-        "query": "A photo of a celebrity with eyeglasses.",
+        "query": "A photo of a celebrity wearing glasses.",
         "spurious_prompts": [
             "A photo of a male celebrity.",
             "A photo of a female celebrity."
@@ -96,7 +96,7 @@
 
     },
     "Wearing_Hat": {
-        "query": "A photo of a celebrity with a hat on.",
+        "query": "A photo of a celebrity wearing a hat.",
         "spurious_prompts": [
             "A photo of a male celebrity.",
             "A photo of a female celebrity."

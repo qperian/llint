@@ -1,0 +1,6 @@
+att_to_debias: 'gender'
+query_type: 'stereotype'
+ref_dataset_name: 'UTKFace_train'
+target_dataset_name: 'UTKFace_train'
+model_ID: 'openai/clip-vit-base-patch16' 
+random_seed: 0

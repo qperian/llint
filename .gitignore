@@ -3,3 +3,8 @@ __pycache__
 data
 results
 results_old
+datasets
+cos_split_imgs
+
+LLINT copy.py
+SFID.py

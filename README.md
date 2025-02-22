@@ -17,6 +17,8 @@ python create_dataset.py --_MODEL_NAME 'clip-vit-base-patch16' --data_path 'PATH
 python create_dataset.py --_MODEL_NAME 'clip-vit-large-patch14' --data_path 'PATH_TO_FAIRFACE'  --meta_data_file_name 'fairface_label_train.csv' --dataset_name 'fairface'
 python create_dataset.py --_MODEL_NAME 'clip-vit-base-patch16' --data_path 'PATH_TO_CELEBA'  --meta_data_file_name 'CelebAMask-HQ-attribute-anno.txt' --dataset_name 'celeba'
 python create_dataset.py --_MODEL_NAME 'clip-vit-large-patch14' --data_path 'PATH_TO_CELEBA' --meta_data_file_name 'CelebAMask-HQ-attribute-anno.txt' --dataset_name 'celeba'
+python create_dataset.py --_MODEL_NAME 'clip-vit-base-patch16' --data_path 'PATH_TO_CELEBA' --meta_data_file_name 'CelebAMask-HQ-attribute-anno.txt' --dataset_name 'celeba'
+python create_dataset.py --_MODEL_NAME 'clip-vit-base-patch16' --data_path './datasets/UTKFace/' --meta_data_file_name 'utk_info.txt' --dataset_name 'UTKFace'
 ```
 
 ## Pre-Generating Query Augmentations
