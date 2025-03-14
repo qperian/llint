@@ -3,3 +3,4 @@ query_type: 'hair'
 dataset_name: 'celeba'
 model_ID: 'openai/clip-vit-large-patch14' 
 random_seed: 0
+s

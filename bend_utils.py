@@ -24,19 +24,34 @@ def get_cos_neighbors_tensor(query_vec, embed_dataset, k = None):
     #neighbors = embed_dataset[top_indices]
     
     return top_indices.T
-def get_cos_neighbors(query_vec, embed_dataset, k = None, P=None):
-    if P is not None:
+def get_cos_neighbors(query_vec, embed_dataset, embedds=None, k = None, P=None, att_to_debias = None, classes = None):
+    if embedds is not None:
+        embed_dataset_debiased = embedds
+    elif P is not None:
         embed_dataset_debiased = np.matmul(embed_dataset['embedding'].astype(float), P.T)
     else:
         embed_dataset_debiased = embed_dataset['embedding'].astype(float)
-    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset_debiased)
+    cos_scores = util.cos_sim(query_vec.astype(float), embed_dataset_debiased.astype(float))
     if k is None:
         _k = len(embed_dataset)
     else:
         _k = k
+    
     top_results = torch.topk(cos_scores, k=_k)
     topk_sim = top_results.values.cpu().numpy().reshape(-1)
     top_indices = top_results.indices.cpu().numpy()[0]
+
+    if classes is not None:
+        topk_by_class = {}
+        for cl in classes:
+            cos_scores_class = cos_scores[:, embed_dataset[att_to_debias] == cl]
+            top_results_class = torch.topk(cos_scores_class, k=int(_k/2))
+            topk_sim_class = top_results_class.values.cpu().numpy().reshape(-1)
+            top_indices_class = top_results_class.indices.cpu().numpy()[0]
+            dist_scores = 1. - topk_sim_class
+            neighbors = embed_dataset[np.where(embed_dataset[att_to_debias] == cl)[0][top_indices_class]]
+            topk_by_class[cl] = dist_scores, neighbors
+        return topk_by_class
 
     if k is None:
         kn = KneeLocator([i for i in range(len(topk_sim))], topk_sim, curve='convex', direction='decreasing').knee
@@ -267,6 +282,7 @@ def _cl_with_min_skew(returned_samples, target_dist, spurious_label='gender', ta
 
 def group_accuracy(retrieved_samples, q_class,  spurious_label, spurious_class_list):
     s_array = np.asarray(retrieved_samples[spurious_label])
+
     class_array = np.asarray(retrieved_samples[q_class])
     result_dict = {}
     total_acc = 0
@@ -347,13 +363,15 @@ def relevency(returned_samples, q_class, spurious_label='gender', spurious_class
     return result_dict
 
 def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, target_spurious_class_list, target_dataset, 
-                 fold, class_embeddings = None, name='Vanilla', QUERY_IS_LABELED=True, P=None):
+                 fold, embedds = None, class_embeddings = None, name='Vanilla', QUERY_IS_LABELED=True, P=None, folder_name='images'):
     # result_d = {}
     # for i in range(5):
     _result = {}
     _t_ds = target_dataset
-    
-    _scores, _samples = get_cos_neighbors(q_embedding, _t_ds, k = K, P=P)
+    embedds_ = None
+    if embedds is not None:
+        embedds_ = embedds
+    _scores, _samples = get_cos_neighbors(q_embedding, _t_ds, embedds=embedds_, k = K, P=P)
     
  #   retrieval_acc = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
  #   print(f"{name} retrieval accuracy: {retrieval_acc}")
@@ -362,8 +380,26 @@ def get_metrics(q_embedding, query_class, att_to_debias, K, spurious_att_prior, 
     if QUERY_IS_LABELED:
         plot_cos_sims(f'{name}_{query_class}', q_embedding, _t_ds, query_class, target_spurious_class_list)
 
-        im_cos_neighbors(q_embedding, query_class, _t_ds, f"{fold}/{name}_{query_class}", k=100, P=P)
-        
+        if not os.path.exists(f'./retrieved/{folder_name}'):
+            os.makedirs(f'./retrieved/{folder_name}')
+        if not os.path.exists(f'./retrieved/{folder_name}/{fold}'):
+            os.makedirs(f'./retrieved/{folder_name}/{fold}') 
+
+        topk_by_class  = get_cos_neighbors(q_embedding, _t_ds, k=K, P=P, embedds=embedds, att_to_debias=att_to_debias, classes=target_spurious_class_list)
+        for cl in target_spurious_class_list:
+            scores, samples = topk_by_class[cl]
+            print("SET", set(_t_ds[att_to_debias]))
+            embed_cl = _t_ds[np.where(_t_ds[att_to_debias] == cl)[0]]
+            print(len(embed_cl))
+            plot_cos_sims(f'{cl}_{name}_{query_class}', q_embedding, embed_cl, query_class, target_spurious_class_list)
+            retrieval_acc, total_accuracy = group_accuracy(samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
+            print(f"{cl} total accuracy: {total_accuracy}")
+            if not os.path.exists(f'./retrieved/{folder_name}/{fold}/{cl}'):
+                os.makedirs(f'./retrieved/{folder_name}/{fold}/{cl}') 
+            for i, file in enumerate(samples['file']):
+                os.symlink('/data/healthy-ml/gobi1/data/Celeba_HQ_dialog/'+file, f'./retrieved/{folder_name}/{fold}/{cl}/{name}_{query_class}={samples[query_class][i]}_{i}.png')
+        im_cos_neighbors(q_embedding, query_class, _t_ds, f"{folder_name}/{fold}/{name}_{query_class}", k=100, P=P)
+
         retrieval_acc, total_accuracy = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
         print(f"{name} retrieval accuracy: {retrieval_acc}")
         print(f"{name} total accuracy: {total_accuracy}")
@@ -416,9 +452,6 @@ def plot_cos_sims(name, query_embedding, ref_dataset, query_class, att_list):
     # Plot histograms
     labels = (labels > 0).astype(int)
     for i in range(2):
-        print(i)
-        print(cos_sims[labels == i])
-        print(labels)
         plt.hist(cos_sims[labels == i], bins=30, alpha=0.5, label=f'{query_class}={i}', density=False)
 
     # Add labels, legend, and title

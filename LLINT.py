@@ -8,13 +8,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from sklearn.multiclass import OutputCodeClassifier
+from sklearn.multiclass import OutputCodeClassifier, OneVsRestClassifier
 
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
 from bend_utils import get_proj_matrix, get_cos_neighbors_tensor
-
 
 def get_INLP_P(dataset_embeddings, labels, num_seps=25, max_comp=900, logreg=True):
     '''Perform iterative projection to make a dataset not linearly separable
@@ -58,13 +57,13 @@ def get_INLP_P(dataset_embeddings, labels, num_seps=25, max_comp=900, logreg=Tru
         if logreg:
             if len(set(labels)) > 2: 
                 #for multiclass, use OutputCodeClassifier to reduce number of dimensions projected out to log(# categories), and maintain meaning of query
-                lr = OutputCodeClassifier(LogisticRegression(random_state=0), code_size=0.6, random_state=0)
+                lr = OneVsRestClassifier(LogisticRegression(max_iter=10000))#OutputCodeClassifier(LogisticRegression(random_state=0), code_size=0.8, random_state=0)
             else:
                 lr = LogisticRegression(max_iter=10000)
         else: 
             #linear SVC is faster, but less accurate and seems to be worse for debiasing
             lr = LinearSVC(max_iter=100000)
-        
+
         lr.fit(trainset, labels)
 
         if len(set(labels)) > 2: #OutputCodeClassifier has a different output format
@@ -109,6 +108,7 @@ def full_LLINT_debias(query_embeddings, ref_dataset_embeddings, labels, P_init=N
     #Get the images closest to each prompt
     Ps = [P_init for _ in range(num_prompts)]
     seps = [[seps_init] for _ in range(num_prompts)]
+    #int(_ref_image_embeddings.shape[0]/2)
     for radius in (int(_ref_image_embeddings.shape[0]/2),1500):#(7500, 1000):
         print(_ref_image_embeddings.shape)
         top500 = get_cos_neighbors_tensor(text_embeddings_i,_ref_image_embeddings,radius)

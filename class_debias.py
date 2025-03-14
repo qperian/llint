@@ -1,23 +1,29 @@
 import torch
 import numpy as np
-from transformers import CLIPModel, AutoProcessor
 import pandas as pd
+import scipy.stats
+from transformers import CLIPModel, AutoProcessor
 import torch.nn.functional as F
 import yaml
 import json
-from datasets import load_dataset
-import queries
-import scipy.stats
+from datasets import load_dataset, DatasetDict
+from datasets import concatenate_datasets
 from bend_utils import *
+from evaluate import evaluate
+import queries
+
+from Rotational import rotational_equalize
 from LLINT import full_LLINT_debias, get_INLP_P
+from SFID import get_SFID_indices, get_SFID_embeddings
 
 ######
 # Set run parameters
 ######
 #config = yaml.safe_load(open("experimental_configs/celeba_various_gender_clip-vit-base-patch16.yml"))
-#config = yaml.safe_load(open("experimental_configs/fairface_stereotype_gender_clip-vit-base-patch16.yml"))
+# config = yaml.safe_load(open("experimental_configs/fairface_stereotype_race_clip-vit-base-patch16.yml"))
 config = yaml.safe_load(open("experimental_configs/utk_gender.yml"))
-RUN_NAME = 'quick100check'#used for naming output files
+#config = yaml.safe_load(open("experimental_configs/celeba_stereotype_gender_clip-vit-large-patch14.yml"))
+RUN_NAME = 'sped_up'#used for naming output files
 FOLDS = 1 #how many folds to perform cross validation over (must be <= # when creating dataset)
 
 print(config)
@@ -38,7 +44,6 @@ random_seed = config['random_seed']
 
 if query_type == 'hair':
     query_classes = queries.hair_classes
-
 elif query_type == 'stereotype':
     query_classes = queries.stereotype_classes
 elif query_type == 'various':
@@ -54,7 +59,7 @@ lam = 1000
 #
 
 if att_to_debias == 'race':
-    if target_dataset_name[:7] == 'UTKFace':
+    if ref_dataset_name[:7] == 'UTKFace':
         att_elements = ['White', 'Black', 'Asian', 'Indian', 'Latino Hispanic']
     else:
         att_elements = ['Black', 'East Asian', 'Indian', 'Latino_Hispanic', 'Middle Eastern', 'Southeast Asian', 'White']
@@ -63,6 +68,21 @@ elif att_to_debias == 'gender':
 else:
     print('{att_to_debias} not implemented')
 
+
+if query_type in ('hair', 'various'):
+    query_is_labeled = True
+else:
+    query_is_labeled = False
+
+if att_to_debias == 'gender':
+    num_neighbors = 100
+    if query_is_labeled:
+        K = 100
+    else:
+        K = 500
+else: 
+    num_neighbors = 10
+    K = 500
 ############################################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -75,36 +95,31 @@ model_id = config['model_ID']
 vl_model = CLIPModel.from_pretrained(model_ID).to(device)
 processor = AutoProcessor.from_pretrained(model_ID)
 
-def get_embeddings(input_text : list, clip_model, clip_processor, normalize=True):
-
-    with torch.no_grad():
-        inputs = clip_processor(text=input_text, return_tensors="pt", padding = True).to(device)
-
-        query_text_embedding = clip_model.get_text_features(**inputs)#.to('cpu').numpy()
-
-    if normalize:
-        query_text_embedding /= query_text_embedding.norm(dim=-1, keepdim=True)
-    return query_text_embedding
-
 ####################################################
 # Define functions used to load saved datasets into Huggingface datasets objects
 ####################################################
 def utk_ethnicity_map(x):
-    if x == 0:
-        return 'White'
-    if x == 1:
-        return 'Black'
-    if x == 2:
-        return 'Asian'
-    if x == 3:
-        return 'Indian'
-    if x == 4:
-        return 'Latino Hispanic'
+    ethnicity_map = {
+        0: 'White',
+        1: 'Black', 
+        2: 'Asian',
+        3: 'Indian',
+        4: 'Latino Hispanic'
+    }
+    return ethnicity_map[x]
 
 
 
 def load_embedding_dataset(ds_path):
-    embeddings_dataset = load_dataset("json", data_files=ds_path, split='train')
+    if ds_path.split('/')[-1] == 'celeba_large_train_featurized_clip-vit-large-patch14.jsonl':
+        # embeddings_dataset_half1 = load_dataset("json", data_files='data/half1_'+ds_path.split('/')[-1], split='train')
+        # embeddings_dataset_half2 = load_dataset("json", data_files='data/half2_'+ds_path.split('/')[-1], split='train')
+        # dd_to_concat = [embeddings_dataset_half1, embeddings_dataset_half2]
+        # embeddings_dataset = concatenate_datasets(dd_to_concat)
+        data_files = {"train": ['data/half1_'+ds_path.split('/')[-1], 'data/half2_'+ds_path.split('/')[-1]]}
+        embeddings_dataset = load_dataset("json", data_files=data_files, split='train')
+    else:
+        embeddings_dataset = load_dataset("json", data_files=ds_path, split='train')
     embeddings_dataset = embeddings_dataset.with_format("np", columns=["embedding"], output_all_columns=True)
 
     if 'Male' in embeddings_dataset.features.keys():
@@ -144,17 +159,13 @@ with open(f"data/fold_indices/{target_dataset_name}_featurized_{_MODEL_NAME}_fol
     fold_dict = json.load(file)
 
 
-reference_embeddings_dataset = train_embeddings_dataset.select(fold_dict[str(0)]['train_indices'])
-target_embeddings_dataset = _embeddings_dataset.select(fold_dict[str(0)]['test_indices'])
+reference_embeddings_dataset = train_embeddings_dataset#.select(fold_dict[str(0)]['train_indices'])
+target_embeddings_dataset = _embeddings_dataset#.select(fold_dict[str(0)]['test_indices'])
 
 ####################################################
-if query_type in ('hair', 'various'):
-    query_is_labeled = True
-else:
-    query_is_labeled = False
 
 ref_spurious_class_list = att_elements
-target_spurious_class_list = att_elements
+target_spurious_class_list = att_elements#['Black', 'East Asian', 'Indian', 'Latino_Hispanic', 'Middle Eastern', 'Southeast Asian', 'White']#att_elements
 
 gendercode = {"Male": 1, "Female": 0}
 ref_gender_list = np.array(list(map(lambda g: gendercode[g], reference_embeddings_dataset["gender"])))
@@ -169,29 +180,29 @@ P0 = get_proj_matrix(spurious_prompt_embedding).astype(np.float32)
 result_dict = {}
 
 P_inits = {}
+
+sfid_important_indices, sfid_mean_features_lowconfidence, low_conf_images = get_SFID_indices(train_embeddings_dataset, device, att_to_debias, ref_dataset_name, _MODEL_NAME)
+
 for k_fold in range(FOLDS):
 
     if target_dataset_name == ref_dataset_name:
         reference_embeddings_dataset = train_embeddings_dataset.select(fold_dict[str(k_fold)]['train_indices'])
     else:
         reference_embeddings_dataset = train_embeddings_dataset
+        if k_fold > 0:
+            P_inits[k_fold] =P_inits[k_fold-1]
+            continue
+
     target_embeddings_dataset = _embeddings_dataset.select(fold_dict[str(k_fold)]['test_indices'])
 
     ref_att_list = np.array(list(map(lambda g: att_codes[g], reference_embeddings_dataset[att_to_debias])))
     P_inits[k_fold] = get_INLP_P(F.normalize(torch.tensor(reference_embeddings_dataset["embedding"])), ref_att_list)
 
+
+####################################################
 for query_class in query_classes:
     result_dict[query_class] = {}
 
-    result_dict[query_class]['Vanilla'] = {}
-
-    result_dict[query_class]['P0'] = {}
-
-    result_dict[query_class]['Inclusive_P0'] = {}
-
-    result_dict[query_class]['bend_vlm'] = {}
-
-    result_dict[query_class]['llint'] = {}
 
     if query_is_labeled:
         query_class_prompt = instantiated_search_classes[query_class]['classes']
@@ -245,6 +256,7 @@ for query_class in query_classes:
             conditional_spurious_att_array = spurious_att_array[eg_array==1]
             for spurious_att in target_spurious_class_list:
                 conditional_spurious_att_prior[spurious_att] = conditional_spurious_att_array[conditional_spurious_att_array==spurious_att].shape[0]/conditional_spurious_att_array.shape[0]
+            print(f'conditional spurious att array: {spurious_att_array[eg_array==1].shape[0]}, {conditional_spurious_att_array[conditional_spurious_att_array==spurious_att].shape[0]},{spurious_att_array.shape[0]}')
             print(f'conditional spurious att prior: {conditional_spurious_att_prior}')
 
         if query_is_labeled:
@@ -302,23 +314,16 @@ for query_class in query_classes:
         P0_local, P0_local_embeddings = get_P0_local(query_text_embedding)
         #######
 
-        if att_to_debias == 'gender':
-            num_neighbors = 100
-            if query_is_labeled:
-                K = 100
-            else:
-                K = 500
-        else: 
-            num_neighbors = 10
-            K = 500
         ref_dataset = reference_embeddings_dataset
         spurious_class_list = ref_spurious_class_list
         
         target_dist = ref_spurious_att_prior
 
 
-
-
+        SFID_query_embeddings = get_SFID_embeddings(torch.tensor(query_text_embedding), sfid_mean_features_lowconfidence, sfid_important_indices, device).detach().cpu().numpy()
+        SFID_target_embeddings = get_SFID_embeddings(torch.tensor(target_embeddings_dataset["embedding"]), sfid_mean_features_lowconfidence, sfid_important_indices, device).detach().cpu().numpy()
+        
+        #target_embeddings_dataset.ma(lambda x: {"embedding": get_SFID_embeddings(x, sfid_mean_features_lowconfidence, sfid_important_indices, device).detach().cpu().numpy()})
         bend_vlm_embeddings, x_mean, y_means = legrange_text(query_text_embedding, reference_embeddings_dataset, spurious_label=att_to_debias, 
                                                 spurious_class_list=att_elements, num_neighbors=num_neighbors, proj_matrix = P0_local, normalize=normalize)
 
@@ -334,14 +339,30 @@ for query_class in query_classes:
 
             llint_class_embeddings, llint_class_seps, Ps_class_LLINT = full_LLINT_debias(class_prompt_embedding, torch.tensor(reference_embeddings_dataset["embedding"]), 
                                                             ref_att_list, P_init=P_init, seps_init=seps_init)
+            inlp_class_embeddings = np.matmul(class_prompt_embedding,P_init.T).numpy()
         else:
             bend_vlm_class_embeddings = None
             llint_class_embeddings = None
-        # #
+            inlp_class_embeddings = None
+
         '''
+        # #
+        # torch.save(llint_embeddings, f'./results/{query_class}_{RUN_NAME}_ref({ref_dataset_name})_targ({target_dataset_name})_query({query_type})_att({att_to_debias})_model({_MODEL_NAME})_fold({k_fold})_llint_embeddings.pt')
         llint_seps = llint_seps[0]
         print(len(llint_seps))
         llint_combined = np.concatenate([np.vstack(seps).astype(np.float32) for seps in llint_seps])
+        print([seps[1].shape for seps in llint_seps])
+        print("RANK", np.linalg.matrix_rank(llint_combined))
+
+        
+        # labels = get_cos_neighbors(query_text_embedding, target_embeddings_dataset, k = 100)[1][att_to_debias]
+        # neighbors =  get_cos_neighbors(query_text_embedding, target_embeddings_dataset, k = 100)[1]
+        # llint_embeddings = torch.tensor(rotational_equalize(query_text_embedding, neighbors["embedding"], llint_combined, low_conf_images, labels))
+        # llint_ref_images = torch.tensor(rotational_equalize(torch.tensor(target_embeddings_dataset["embedding"]), train_embeddings_dataset["embedding"], llint_combined, low_conf_images)).numpy()
+        # llint_seps = llint_seps[0]
+        # print(len(llint_seps))
+        # llint_combined = np.concatenate([np.vstack(seps.reshape(1,-1)).astype(np.float32) for seps in llint_seps])
+        print("RANK", np.linalg.matrix_rank(llint_combined))
         print("LLINT SEPS", llint_combined.shape)
         # print(util.cos_sim(llint_seps[0],llint_seps[1]))
         query_sims = util.cos_sim(query_text_embedding, llint_combined)
@@ -355,181 +376,50 @@ for query_class in query_classes:
         filtered_proj = get_proj_matrix(filtered_seps)
         print("RANK", np.linalg.matrix_rank(filtered_proj))
 
-        def get_retr_acc(query):
-            _scores, _samples = get_cos_neighbors(query, target_embeddings_dataset, k = K)
-            _, tot_acc = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
-            return tot_acc
+        # def get_retr_acc(query):
+        #     _scores, _samples = get_cos_neighbors(query, target_embeddings_dataset, k = K)
+        #     _, tot_acc = group_accuracy(_samples, query_class,  spurious_label=att_to_debias, spurious_class_list=target_spurious_class_list)
+        #     return tot_acc
         
-        ret_accs = np.array([get_retr_acc(np.array(sep)) for sep in llint_combined])
-        print("RETR ACC", [get_retr_acc(np.array(sep)) for sep in llint_combined])
+        # ret_accs = np.array([get_retr_acc(np.array(sep)) for sep in llint_combined])
+        # print("RETR ACC", [get_retr_acc(np.array(sep)) for sep in llint_combined])
 
-        filtered_seps = llint_combined[ret_accs < 0.1]
-        print("FILTERED SEPS", filtered_seps.shape)
+        filtered_seps = llint_combined#[np.abs(query_sims[0]) < 2]
+        # print("FIlTErED OUT", llint_combined[np.abs(query_sims[0]) > 0.2].shape)
+        # print("FILTERED SEPS", filtered_seps.shape)
         filtered_proj = get_proj_matrix(filtered_seps)
-        print("RANK", np.linalg.matrix_rank(filtered_proj))
-        '''
+        # print("RANK", np.linalg.matrix_rank(filtered_proj))
+        
         # llint_embeddings = torch.from_numpy(np.matmul(query_text_embedding, filtered_proj.T))
+        '''
+        debiased_embeddings = { #query, target, class
+            'Vanilla': (query_text_embedding, None, class_prompt_embedding),
+            'P0': (P0_embeddings, None, P0_class_embeddings),
+            'Inclusive_P0': (inclusive_P_star_embeddings, None, inclusive_P_star_class_embeddings),
+            'SFID': (query_text_embedding, SFID_target_embeddings.astype(np.float32), class_prompt_embedding),
+            'bend_vlm': (bend_vlm_embeddings, None, bend_vlm_class_embeddings),
+            'llint': (llint_embeddings.numpy(), None, llint_class_embeddings),
+            'inlp': (np.matmul(query_text_embedding,P_init).numpy(), None, inlp_class_embeddings),
+        }
 
-        result_dict[query_class]['Vanilla'][f'fold_{k_fold}'] = get_metrics(query_text_embedding, query_class, att_to_debias, 
-                                                K, prior_for_metric, target_spurious_class_list, name='Vanilla', target_dataset = target_embeddings_dataset,
+        
+        for method in debiased_embeddings.keys(): 
+            query_prompt, target_set, class_prompt = debiased_embeddings[method]
+            if method not in result_dict[query_class].keys():
+                result_dict[query_class][method] = {}
+            result_dict[query_class][method][f'fold_{k_fold}'] = get_metrics(query_prompt, query_class, att_to_debias, 
+                                                K, prior_for_metric, target_spurious_class_list,
+                                                name=method, target_dataset = target_embeddings_dataset,
+                                                embedds=target_set,
                                                 fold=k_fold, QUERY_IS_LABELED=query_is_labeled,
-                                                class_embeddings=class_prompt_embedding)
-
-    
-        result_dict[query_class]['P0'][f'fold_{k_fold}'] = get_metrics(P0_embeddings, query_class, att_to_debias, K, prior_for_metric, 
-                                                        target_spurious_class_list, name='P0', target_dataset = target_embeddings_dataset, 
-                                                        fold=k_fold, QUERY_IS_LABELED=query_is_labeled,
-                                                        class_embeddings=P0_class_embeddings)
-
-        result_dict[query_class]['Inclusive_P0'][f'fold_{k_fold}'] = get_metrics(inclusive_P_star_embeddings, query_class, att_to_debias, K, prior_for_metric,
-                                                    target_spurious_class_list, name='Inclusive_P0', target_dataset = target_embeddings_dataset, 
-                                                    fold=k_fold, QUERY_IS_LABELED=query_is_labeled,
-                                                    class_embeddings=inclusive_P_star_class_embeddings)
-
-
-        print('***'*7)
-        print()
-        result_dict[query_class]['bend_vlm'][f'fold_{k_fold}'] = get_metrics(bend_vlm_embeddings, query_class, att_to_debias, K, prior_for_metric, 
-                                                            target_spurious_class_list, name='bend_vlm', target_dataset = target_embeddings_dataset, 
-                                                            fold=k_fold, QUERY_IS_LABELED=query_is_labeled
-                                                            , class_embeddings=bend_vlm_class_embeddings)
-
-        result_dict[query_class]['llint'][f'fold_{k_fold}'] = get_metrics(llint_embeddings.numpy(), query_class, att_to_debias, K, prior_for_metric, 
-                                                            target_spurious_class_list, name='llint', target_dataset = target_embeddings_dataset, 
-                                                            fold=k_fold, QUERY_IS_LABELED=query_is_labeled
-                                                            , class_embeddings=llint_class_embeddings)#, P=Ps_LLINT[0].numpy())
-        print('--'*7)
-        print()
+                                                class_embeddings=class_prompt,
+                                                folder_name=f'{RUN_NAME}_ref({ref_dataset_name})_targ({target_dataset_name})_query({query_type})_att({att_to_debias})_model({_MODEL_NAME}')
+            print()
 ####################################################
 
-def mean_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), scipy.stats.sem(a)
-    h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
-    return m, h
+methods = debiased_embeddings.keys()
 
-####################################################
+df_atts = evaluate(result_dict, methods, query_is_labeled, folds=FOLDS)
 
-methods = ['Vanilla', 'P0', 'Inclusive_P0', 'bend_vlm', 'llint']
-
-
-
-kl_mean = []
-kl_ci =[]
-
-max_skew_mean =[]
-max_skew_ci =[]
-
-#
-auc_mean =[]
-auc_ci =[]
-gap_mean =[]
-gap_ci =[]
-#
-classification_accuracy_mean =[]
-classification_accuracy_ci =[]
-retrieval_acc_mean =[]
-retrieval_acc_ci =[]
-total_acc_mean =[]
-total_acc_ci =[]
-#
-
-for m in methods:
-    kl_avg_list = []
-    max_skew_avg_list = []
-
-    #
-    auc_avg_list = []
-    gap_avg_list = []
-    #
-    classification_accuracy_avg_list = []
-    retrieval_accuracy_avg_list = []
-    total_accuracy_avg_list = []
-
-    for fold in range(FOLDS):
-        kl_list = []
-        max_skew_list =[]
-
-        #
-        auc_list =[]
-        gap_list =[]
-        #
-        classification_accuracy_list = []
-        retrieval_accuracy_list = []
-        total_accuracy_list = []
-
-        for att in result_dict.keys():
-            kl_list.append(result_dict[att][m][f"fold_{fold}"]['kl_prior'])
-            max_skew_list.append(result_dict[att][m][f"fold_{fold}"]['max_skew_prior'])
-
-            if query_is_labeled:
-                auc_list.append(result_dict[att][m][f"fold_{fold}"]['worst_auc_roc_val'])
-                gap_list.append(result_dict[att][m][f"fold_{fold}"]['auc_roc_gap'])
-                #
-                classification_accuracy_list.append(result_dict[att][m][f"fold_{fold}"]['classification_accuracy'])
-                retrieval_accuracy_list.append(result_dict[att][m][f"fold_{fold}"]['retrieval_accuracy'])
-                total_accuracy_list.append(result_dict[att][m][f"fold_{fold}"]['total_accuracy'])
-
-        kl_avg_list.append(np.mean(kl_list))
-        max_skew_avg_list.append(np.mean(max_skew_list))
-
-        if query_is_labeled:
-            auc_avg_list.append(np.mean(auc_list))
-            gap_avg_list.append(np.mean(gap_list))
-            #
-            classification_accuracy_avg_list.append(np.mean(classification_accuracy_list))
-            retr_acc_mean = {key: np.mean([d[key] for d in retrieval_accuracy_list]) for key in retrieval_accuracy_list[0]}
-            retrieval_accuracy_avg_list.append(retr_acc_mean)
-            total_accuracy_avg_list.append(np.mean(total_accuracy_list))
-
-    _m, _h = mean_confidence_interval(kl_avg_list)
-    kl_mean.append(_m)
-    kl_ci.append(_h)
-
-    _m, _h = mean_confidence_interval(max_skew_avg_list)
-    max_skew_mean.append(_m)
-    max_skew_ci.append(_h)
-
-    if query_is_labeled:
-        _m, _h = mean_confidence_interval(auc_avg_list)
-        auc_mean.append(_m)
-        auc_ci.append(_h)
-        _m, _h = mean_confidence_interval(gap_avg_list)
-        gap_mean.append(_m)
-        gap_ci.append(_h)
-        #
-        _m, _h = mean_confidence_interval(classification_accuracy_avg_list)
-        classification_accuracy_mean.append(_m)
-        classification_accuracy_ci.append(_h)
-
-        m = {}
-        h = {}
-        print(retrieval_accuracy_avg_list)
-        for key in retrieval_accuracy_avg_list[0]:
-            m[key], h[key]  = mean_confidence_interval([float(d[key]) for d in retrieval_accuracy_avg_list])
-        retrieval_acc_mean.append(m)
-        retrieval_acc_ci.append(h)
-
-        _m, _h = mean_confidence_interval(total_accuracy_avg_list)
-        total_acc_mean.append(_m)
-        total_acc_ci.append(_h)
-
-
-df_atts = {'Method': methods, 
-           'KL_Div': kl_mean, 'KL_CI': kl_ci, 
-           'MaxSkew': max_skew_mean, 
-            'MaxSkew_CI': max_skew_ci,
-            }
-if query_is_labeled:
-    # df_atts['Worst_Group_Auc_Roc'] = auc_mean
-    # df_atts['Worst_Group_Auc_Roc_CI'] = auc_ci
-    # df_atts['Gap_CI'] = gap_ci
-    df_atts['Clas_Acc'] = classification_accuracy_mean
-    df_atts['Clas_Acc_CI'] = classification_accuracy_ci
-    df_atts['Retr_Acc'] = retrieval_acc_mean
-    df_atts['Retr_Acc_CI'] = retrieval_acc_ci
-    df_atts['Tot_Retr_Acc'] = total_acc_mean
-    df_atts['Tot_Retr_Acc_CI'] = total_acc_ci
 df = pd.DataFrame(df_atts)
 df.to_csv(f'./results/{RUN_NAME}_ref({ref_dataset_name})_targ({target_dataset_name})_query({query_type})_att({att_to_debias})_model({_MODEL_NAME}).csv')

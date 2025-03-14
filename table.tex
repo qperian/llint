@@ -1,0 +1,23 @@
+\begin{table}
+\centering
+\begin{tabular}{cccccccc}
+& &  \multicolumn{2}{c}{\textbf{ViT-L-14}} && \multicolumn{2}{c}{\textbf{ViT-B-16}} \\ \hline
+Attribute & Method & KL Div. $\downarrow$ & MaxSkew $\downarrow$ && KL Div. $\downarrow$ & MaxSkew $\downarrow$\\\hline
+race & Vanilla & $0.121 \pm 0.008$ & $0.582 \pm 0.004$& & $0.102 \pm 0.006$ & $0.519 \pm  0.023$\\
+race & OrthoProj & $0.108 \pm 0.005$ & $0.557 \pm 0.017$& & $0.18 \pm 0.008$ & $0.677 \pm  0.021$\\
+race & OrthoCali & $0.102 \pm 0.006$ & $0.545 \pm 0.017$& & $0.173 \pm 0.008$ & $0.67 \pm  0.018$\\
+race & SFID & $0.217 \pm 0.01$ & $0.773 \pm 0.017$& & $0.102 \pm 0.003$ & $0.462 \pm  0.01$\\
+race & BEND-VLM & $0.173 \pm 0.011$ & $0.704 \pm 0.025$& & $0.121 \pm 0.006$ & $0.561 \pm  0.024$\\
+race & LLINT & $0.037 \pm 0.006$ & $0.35 \pm 0.013$& & $0.04 \pm 0.004$ & $0.353 \pm  0.022$\\
+race & GLINT & $0.033 \pm 0.006$ & $0.332 \pm 0.032$& & $0.032 \pm 0.006$ & $0.358 \pm  0.046$\\ \hline
+gender & Vanilla & $0.071 \pm 0.002$ & $0.269 \pm 0.005$& & $0.077 \pm 0.003$ & $0.255 \pm  0.006$\\
+gender & OrthoProj & $0.02 \pm 0.003$ & $0.152 \pm 0.013$& & $0.235 \pm 0.006$ & $0.451 \pm  0.008$\\
+gender & OrthoCali & $0.018 \pm 0.001$ & $0.127 \pm 0.005$& & $0.319 \pm 0.005$ & $0.535 \pm  0.008$\\
+gender & SFID & $0.014 \pm 0.003$ & $0.122 \pm 0.014$& & $0.017 \pm 0.002$ & $0.148 \pm  0.012$\\
+gender & BEND-VLM & $0.012 \pm 0.001$ & $0.115 \pm 0.002$& & $0.057 \pm 0.003$ & $0.254 \pm  0.011$\\
+gender & LLINT & $0.006 \pm 0.001$ & $0.084 \pm 0.006$& & $0.007 \pm 0.001$ & $0.09 \pm  0.003$\\
+gender & GLINT & $0.016 \pm 0.002$ & $0.134 \pm 0.007$& & $0.005 \pm 0.001$ & $0.073 \pm  0.004$\\ \hline
+\end{tabular}
+\caption{FairFace.}
+\label{tab:methods_metrics}
+\end{table}

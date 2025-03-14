@@ -1,4 +1,5 @@
-np.random.seed(4) 
+import numpy as np
+np.random.seed(42) 
 fold_dict = {}
 for i in range(5):
     fold_dict[i] = {}

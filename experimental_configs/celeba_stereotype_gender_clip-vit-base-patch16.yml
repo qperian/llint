@@ -1,6 +1,6 @@
 att_to_debias: 'gender'
 query_type: 'stereotype'
-ref_dataset_name: 'celeba_large_train'
-target_dataset_name: 'celeba_large_validation'
+ref_dataset_name: 'celeba_large_validation'
+target_dataset_name: 'celeba_large_test'
 model_ID: 'openai/clip-vit-base-patch16' 
 random_seed: 0
